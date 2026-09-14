@@ -12,7 +12,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 
-export function ModelListModal({ isOpen, onClose }) {
+export function ModelListModal({ isOpen, onClose, currentModel, onSelectModel }) {
   const [models, setModels] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -37,10 +37,12 @@ export function ModelListModal({ isOpen, onClose }) {
       }
       const data = await res.json();
       const list = Array.isArray(data.data) ? data.data : [];
-      // 按照 ID 字母排序，将 kimi-k3 置顶
+      // 按照优先级排序：先置顶 Kimi K3，次置顶 Kimi 2.6，其余字母排序
       list.sort((a, b) => {
         if (a.id === 'moonshotai/kimi-k3') return -1;
         if (b.id === 'moonshotai/kimi-k3') return 1;
+        if (a.id === 'moonshotai/kimi-k2.6') return -1;
+        if (b.id === 'moonshotai/kimi-k2.6') return 1;
         return a.id.localeCompare(b.id);
       });
       setModels(list);
@@ -176,7 +178,9 @@ export function ModelListModal({ isOpen, onClose }) {
           ) : (
             <div className="models-grid">
               {filteredModels.map((m) => {
-                const isCurrentK3 = m.id === 'moonshotai/kimi-k3';
+                const isCurrent = m.id === currentModel;
+                const isK3 = m.id === 'moonshotai/kimi-k3';
+                const isK26 = m.id === 'moonshotai/kimi-k2.6';
                 const isCopied = copiedId === m.id;
                 const publisher = m.owned_by || m.id.split('/')[0];
                 const modelShortName = m.id.includes('/') ? m.id.split('/')[1] : m.id;
@@ -184,7 +188,7 @@ export function ModelListModal({ isOpen, onClose }) {
                 return (
                   <div
                     key={m.id}
-                    className={`model-card ${isCurrentK3 ? 'current-model-card' : ''}`}
+                    className={`model-card ${isCurrent ? 'current-model-card' : ''}`}
                   >
                     <div className="model-card-header">
                       <div className="model-id-wrapper">
@@ -193,9 +197,13 @@ export function ModelListModal({ isOpen, onClose }) {
                           {modelShortName}
                         </span>
                       </div>
-                      {isCurrentK3 && (
-                        <span className="badge badge-active">当前工作台模型</span>
-                      )}
+                      {isCurrent ? (
+                        <span className="badge badge-active">当前对话模型</span>
+                      ) : isK3 ? (
+                        <span className="badge badge-k3">Kimi K3 (Thinking)</span>
+                      ) : isK26 ? (
+                        <span className="badge badge-k26">Kimi 2.6 (Chat)</span>
+                      ) : null}
                     </div>
 
                     <div className="model-card-full-id">
@@ -204,24 +212,45 @@ export function ModelListModal({ isOpen, onClose }) {
 
                     <div className="model-card-footer">
                       <span className="model-type-tag">{m.object || 'model'}</span>
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-xs copy-model-btn"
-                        onClick={() => handleCopy(m.id)}
-                        title="复制完整模型 ID"
-                      >
-                        {isCopied ? (
-                          <>
-                            <Check size={12} className="text-success" />
-                            <span className="text-success">已复制</span>
-                          </>
+                      <div className="model-card-actions">
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-xs copy-model-btn"
+                          onClick={() => handleCopy(m.id)}
+                          title="复制完整模型 ID"
+                        >
+                          {isCopied ? (
+                            <>
+                              <Check size={12} className="text-success" />
+                              <span className="text-success">已复制</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy size={12} />
+                              <span>复制 ID</span>
+                            </>
+                          )}
+                        </button>
+
+                        {isCurrent ? (
+                          <span className="current-active-tag">
+                            <Check size={12} /> 当前已选
+                          </span>
                         ) : (
-                          <>
-                            <Copy size={12} />
-                            <span>复制 ID</span>
-                          </>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-xs select-model-btn"
+                            onClick={() => {
+                              if (onSelectModel) onSelectModel(m.id);
+                              onClose();
+                            }}
+                            title={`切换当前对话模型为 ${m.id}`}
+                          >
+                            <Sparkles size={12} className="text-cyan" />
+                            <span>设为当前模型</span>
+                          </button>
                         )}
-                      </button>
+                      </div>
                     </div>
                   </div>
                 );

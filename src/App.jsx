@@ -11,6 +11,9 @@ import {
   saveStoredSystemPrompt,
   loadStoredSettings,
   saveStoredSettings,
+  loadStoredModel,
+  saveStoredModel,
+  DEFAULT_MODEL,
   clearStoredMessages,
 } from './utils/storage';
 import { MessageSquare, Sparkles, ShieldAlert } from 'lucide-react';
@@ -19,6 +22,7 @@ export function App() {
   const [messages, setMessages] = useState(() => loadStoredMessages());
   const [systemPrompt, setSystemPrompt] = useState(() => loadStoredSystemPrompt());
   const [settings, setSettings] = useState(() => loadStoredSettings());
+  const [currentModel, setCurrentModel] = useState(() => loadStoredModel());
   const [input, setInput] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState(null);
@@ -61,6 +65,10 @@ export function App() {
   useEffect(() => {
     saveStoredSettings(settings);
   }, [settings]);
+
+  useEffect(() => {
+    saveStoredModel(currentModel);
+  }, [currentModel]);
 
   // 3. 自动平滑滚动到底部
   const scrollToBottom = (behavior = 'smooth') => {
@@ -108,6 +116,7 @@ export function App() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          model: currentModel,
           messages: historyToSend.map((m) => ({
             role: m.role,
             content: m.content,
@@ -306,6 +315,9 @@ export function App() {
       {/* 顶部导航 */}
       <Header
         health={health}
+        currentModel={currentModel}
+        onSelectModel={setCurrentModel}
+        isGenerating={isGenerating}
         onNewChat={handleNewChat}
         onClear={handleClear}
         messageCount={messages.length}
@@ -328,23 +340,23 @@ export function App() {
             <div className="empty-state-icon">
               <Sparkles size={40} />
             </div>
-            <h2>Kimi K3 本地工作台</h2>
+            <h2>Kimi 智能工作台</h2>
             <p className="empty-subtitle">
-              专为 <code>moonshotai/kimi-k3</code> 打造，支持深度推理、完整 Reasoning 流式展示与长等待保障
+              当前选用: <code>{currentModel}</code> · 支持 Kimi K3 深度推理与 Kimi 2.6 极速对话
             </p>
 
             <div className="feature-grid">
               <div className="feature-card">
-                <div className="feature-title">🧠 深度推理 Reasoning</div>
+                <div className="feature-title">🧠 Kimi K3 深度思考</div>
                 <div className="feature-desc">支持 Low / High / Max 三档思考深度，完整呈现思考链</div>
               </div>
               <div className="feature-card">
-                <div className="feature-title">⚡ 长时间思考防掉线</div>
-                <div className="feature-desc">默认支持 30 分钟推理超时，配备心跳保活机制，避免中断</div>
+                <div className="feature-title">⚡ Kimi 2.6 快速响应</div>
+                <div className="feature-desc">支持 1M 长上下文通用对话，无需长思考，直出精简回答</div>
               </div>
               <div className="feature-card">
-                <div className="feature-title">📝 随时编辑 System Prompt</div>
-                <div className="feature-desc">直接修改设定，下一次请求即时生效，绝不注入隐式指令</div>
+                <div className="feature-title">📝 自由设定 System Prompt</div>
+                <div className="feature-desc">直接修改人设设定，下一次请求即时生效，绝不注入隐式指令</div>
               </div>
               <div className="feature-card">
                 <div className="feature-title">🔒 密钥本地隔离</div>
@@ -372,6 +384,7 @@ export function App() {
       {/* 底部控制与输入区域 */}
       <footer className="footer-controls">
         <ChatInput
+          currentModel={currentModel}
           input={input}
           setInput={setInput}
           systemPrompt={systemPrompt}
@@ -384,10 +397,12 @@ export function App() {
         />
       </footer>
 
-      {/* NVIDIA Build 模型列表查看弹窗 */}
+      {/* NVIDIA Build 模型列表查看与选择弹窗 */}
       <ModelListModal
         isOpen={isModelModalOpen}
         onClose={() => setIsModelModalOpen(false)}
+        currentModel={currentModel}
+        onSelectModel={setCurrentModel}
       />
     </div>
   );

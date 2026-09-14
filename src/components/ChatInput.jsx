@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 
 export function ChatInput({
+  currentModel = 'moonshotai/kimi-k3',
   input,
   setInput,
   systemPrompt,
@@ -99,27 +100,36 @@ export function ChatInput({
 
       {/* 2. 参数调节栏 (Reasoning Effort, Max Tokens, Temperature) */}
       <div className="control-bar">
-        <div className="control-group reasoning-group">
-          <span className="control-label">Reasoning:</span>
-          <div className="pill-group">
-            {['low', 'high', 'max'].map((effort) => {
-              const label = effort.charAt(0).toUpperCase() + effort.slice(1);
-              const isActive = settings.reasoning_effort === effort;
-              return (
-                <button
-                  key={effort}
-                  type="button"
-                  className={`pill-btn ${isActive ? 'active' : ''}`}
-                  onClick={() => handleReasoningEffortChange(effort)}
-                  disabled={isGenerating}
-                  title={`设置 reasoning_effort 为 ${effort}`}
-                >
-                  {label}
-                </button>
-              );
-            })}
+        {currentModel === 'moonshotai/kimi-k3' ? (
+          <div className="control-group reasoning-group">
+            <span className="control-label">Reasoning:</span>
+            <div className="pill-group">
+              {['low', 'high', 'max'].map((effort) => {
+                const label = effort.charAt(0).toUpperCase() + effort.slice(1);
+                const isActive = settings.reasoning_effort === effort;
+                return (
+                  <button
+                    key={effort}
+                    type="button"
+                    className={`pill-btn ${isActive ? 'active' : ''}`}
+                    onClick={() => handleReasoningEffortChange(effort)}
+                    disabled={isGenerating}
+                    title={`设置 reasoning_effort 为 ${effort}`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="control-group reasoning-group reasoning-standard-group">
+            <span className="control-label">模式:</span>
+            <span className="standard-mode-pill" title="当前模型采用标准对话生成，直接输出最终答案">
+              标准极速生成 (无思考链)
+            </span>
+          </div>
+        )}
 
         <div className="control-group">
           <button
@@ -177,7 +187,11 @@ export function ChatInput({
                 }
               />
             </div>
-            <span className="param-tip">Kimi K3 推荐默认 1.0 (范围 0.0 ~ 1.0)</span>
+            <span className="param-tip">
+              {currentModel === 'moonshotai/kimi-k3'
+                ? 'Kimi K3 思考模型推荐默认 1.0 (范围 0.0 ~ 1.0)'
+                : '通用对话推荐 0.6 ~ 1.0 (范围 0.0 ~ 1.0)'}
+            </span>
           </div>
 
           <button

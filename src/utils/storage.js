@@ -1,6 +1,26 @@
 const MESSAGES_KEY = 'kimi_k3_messages';
 const SYSTEM_PROMPT_KEY = 'kimi_k3_system_prompt';
 const SETTINGS_KEY = 'kimi_k3_settings';
+const MODEL_KEY = 'kimi_selected_model';
+
+export const DEFAULT_MODEL = 'moonshotai/kimi-k3';
+
+export const SUPPORTED_MODELS = [
+  {
+    id: 'moonshotai/kimi-k3',
+    name: 'Kimi K3',
+    badge: 'Thinking',
+    description: '2.8T MoE 深度思考模型，支持长思考链推理',
+    hasReasoning: true,
+  },
+  {
+    id: 'moonshotai/kimi-k2.6',
+    name: 'Kimi 2.6',
+    badge: 'Chat',
+    description: '1M 长上下文基座模型，快速直接响应',
+    hasReasoning: false,
+  },
+];
 
 export const DEFAULT_SETTINGS = {
   reasoning_effort: 'high',
@@ -9,6 +29,25 @@ export const DEFAULT_SETTINGS = {
 };
 
 export const DEFAULT_SYSTEM_PROMPT = '';
+
+export function loadStoredModel() {
+  try {
+    const raw = localStorage.getItem(MODEL_KEY);
+    return raw && raw.trim() ? raw.trim() : DEFAULT_MODEL;
+  } catch (e) {
+    return DEFAULT_MODEL;
+  }
+}
+
+export function saveStoredModel(model) {
+  try {
+    if (model) {
+      localStorage.setItem(MODEL_KEY, model);
+    }
+  } catch (e) {
+    console.error('Failed to save selected model to localStorage', e);
+  }
+}
 
 export function loadStoredMessages() {
   try {

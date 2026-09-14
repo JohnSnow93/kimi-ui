@@ -14,7 +14,11 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const DEFAULT_TIMEOUT_MS = parseInt(process.env.REQUEST_TIMEOUT_MS || '1800000', 10); // 默认 30 分钟
 const NVIDIA_ENDPOINT = 'https://integrate.api.nvidia.com/v1/chat/completions';
-const MODEL_NAME = 'moonshotai/kimi-k3';
+const DEFAULT_MODEL = 'moonshotai/kimi-k3';
+const SUPPORTED_MODELS = [
+  { id: 'moonshotai/kimi-k3', name: 'Kimi K3', type: 'thinking' },
+  { id: 'moonshotai/kimi-k2.6', name: 'Kimi 2.6', type: 'chat' },
+];
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
@@ -31,7 +35,8 @@ app.get('/api/health', (req, res) => {
   const apiKey = process.env.NVIDIA_API_KEY?.trim();
   res.json({
     status: 'ok',
-    model: MODEL_NAME,
+    defaultModel: DEFAULT_MODEL,
+    supportedModels: SUPPORTED_MODELS,
     hasApiKey: Boolean(apiKey && apiKey.startsWith('nvapi-')),
     maskedApiKey: maskApiKey(apiKey),
     timeoutMs: DEFAULT_TIMEOUT_MS,
@@ -107,6 +112,7 @@ app.post('/api/chat', async (req, res) => {
   }
 
   const {
+    model = DEFAULT_MODEL,
     messages = [],
     systemPrompt = '',
     reasoning_effort = 'high',
@@ -114,11 +120,13 @@ app.post('/api/chat', async (req, res) => {
     temperature = 1.0,
   } = req.body;
 
+  const selectedModel = (typeof model === 'string' && model.trim()) ? model.trim() : DEFAULT_MODEL;
+
   // 校验与规范 reasoning_effort (仅支持 low, high, max)
   const validEfforts = ['low', 'high', 'max'];
   const safeEffort = validEfforts.includes(reasoning_effort) ? reasoning_effort : 'high';
 
-  // 构建符合 Kimi K3 规范的完整 messages 数组
+  // 构建符合规范的完整 messages 数组
   const formattedMessages = [];
 
   // 1. 若配置了 System Prompt，确保作为第一条 system message
@@ -138,7 +146,7 @@ app.post('/api/chat', async (req, res) => {
         role: 'assistant',
         content: msg.content || '',
       };
-      // 官方 K3 规范：若上一轮保留了 reasoning_content，必须完整回传，以维持思考上下文连贯
+      // 若历史保留了 reasoning_content，必须完整回传，以维持思考上下文连贯
       if (msg.reasoning_content && typeof msg.reasoning_content === 'string') {
         assistantMsg.reasoning_content = msg.reasoning_content;
       }
@@ -153,18 +161,22 @@ app.post('/api/chat', async (req, res) => {
 
   // 请求体构建
   const requestPayload = {
-    model: MODEL_NAME,
+    model: selectedModel,
     messages: formattedMessages,
     max_tokens: Number(max_tokens) || 16384,
     temperature: typeof temperature === 'number' ? temperature : 1.0,
     stream: true,
-    reasoning_effort: safeEffort,
   };
+
+  // 仅在思考模型（如 kimi-k3）上传递 reasoning_effort，避免标准基座模型报 422 错误
+  if (selectedModel === 'moonshotai/kimi-k3') {
+    requestPayload.reasoning_effort = safeEffort;
+  }
 
   console.log(`\n================== [REQUEST START] ==================`);
   console.log(`Time: ${new Date().toISOString()}`);
-  console.log(`Model: ${MODEL_NAME}`);
-  console.log(`Reasoning Effort: ${safeEffort}`);
+  console.log(`Model: ${selectedModel}`);
+  console.log(`Reasoning Effort: ${requestPayload.reasoning_effort || '(标准模式 / 未启用思考链)'}`);
   console.log(`Max Tokens: ${requestPayload.max_tokens}, Temperature: ${requestPayload.temperature}`);
   console.log(`Total Messages: ${formattedMessages.length}`);
   console.log(`API Key: ${maskApiKey(apiKey)}`);
@@ -291,13 +303,13 @@ app.post('/api/chat', async (req, res) => {
       if (upstreamResponse.status === 401 || upstreamResponse.status === 403) {
         friendlyTip = 'NVIDIA API Key 鉴权失败，请检查 .env 中的 NVIDIA_API_KEY 是否正确且未过期。';
       } else if (upstreamResponse.status === 404) {
-        friendlyTip = `模型 ${MODEL_NAME} 不存在或当前端点不可用。`;
+        friendlyTip = `模型 ${selectedModel} 不存在或当前 API Key 暂未开通访问权限（Function not found）。若测试 Kimi 2.6，可确认当前 Key 配额或在模型列表切换其它可用模型。`;
       } else if (upstreamResponse.status === 422) {
         friendlyTip = '请求参数校验失败，请检查 reasoning_effort、max_tokens 等参数范围。';
       } else if (upstreamResponse.status === 429) {
-        friendlyTip = '触发了 NVIDIA Build API 对 Kimi K3 的频次限制 (Rate Limit) 或并发配额上限。NVIDIA 免费测试服务限制了每分钟调用频率，请等待 1~2 分钟冷却后再试。';
+        friendlyTip = `触发了 NVIDIA Build API 对 ${selectedModel} 的频次限制 (Rate Limit) 或并发配额上限。NVIDIA 免费测试服务限制了每分钟调用频率，请等待 1~2 分钟冷却后再试。`;
       } else if (upstreamResponse.status === 503 || upstreamResponse.status === 504) {
-        friendlyTip = 'NVIDIA 端 moonshotai/kimi-k3 推理服务当前算力满载 (ResourceExhausted / Gateway Timeout)。请稍候片刻再试。';
+        friendlyTip = `NVIDIA 端 ${selectedModel} 推理服务当前算力满载 (ResourceExhausted / Gateway Timeout)。请稍候片刻再试。`;
       }
 
       return res.status(upstreamResponse.status).json({
@@ -465,9 +477,10 @@ app.post('/api/chat', async (req, res) => {
 // 启动后端服务
 app.listen(PORT, () => {
   console.log(`\n======================================================`);
-  console.log(`  Kimi K3 本地后端已启动`);
+  console.log(`  Kimi 本地工作台后端已启动`);
   console.log(`  服务地址: http://localhost:${PORT}`);
-  console.log(`  目标模型: ${MODEL_NAME}`);
+  console.log(`  支持模型: Kimi K3 (moonshotai/kimi-k3) / Kimi 2.6 (moonshotai/kimi-k2.6)`);
+  console.log(`  默认模型: ${DEFAULT_MODEL}`);
   console.log(`  默认超时: ${DEFAULT_TIMEOUT_MS}ms (${DEFAULT_TIMEOUT_MS / 60000} 分钟)`);
   console.log(`  API Key:  ${maskApiKey(process.env.NVIDIA_API_KEY)}`);
   console.log(`======================================================\n`);
