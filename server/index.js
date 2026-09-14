@@ -129,9 +129,9 @@ app.post('/api/chat', async (req, res) => {
     abortController.abort(new Error(`Request timed out after ${DEFAULT_TIMEOUT_MS}ms`));
   }, DEFAULT_TIMEOUT_MS);
 
-  // 监听客户端连接断开（例如用户点击 Stop 或关闭网页）
-  req.on('close', () => {
-    if (!res.writableEnded) {
+  // 监听客户端连接断开（必须监听 res 上的 close，不能监听 req 的 close，因 req 读取完 body 后即会触发 close）
+  res.on('close', () => {
+    if (!res.writableEnded && !res.writableFinished) {
       isClientDisconnected = true;
       console.log(`[CLIENT ABORT] 客户端主动断开连接，同步终止 NVIDIA 上游请求`);
       abortController.abort();
