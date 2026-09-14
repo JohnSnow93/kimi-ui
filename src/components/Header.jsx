@@ -1,7 +1,7 @@
 import React from 'react';
-import { MessageSquarePlus, Trash2, Cpu, CheckCircle2, AlertCircle } from 'lucide-react';
+import { MessageSquarePlus, Trash2, Cpu, CheckCircle2, AlertCircle, Layers } from 'lucide-react';
 
-export function Header({ health, onNewChat, onClear, messageCount }) {
+export function Header({ health, onNewChat, onClear, messageCount, onOpenModels }) {
   return (
     <header className="header">
       <div className="header-left">
@@ -37,6 +37,14 @@ export function Header({ health, onNewChat, onClear, messageCount }) {
       </div>
 
       <div className="header-right">
+        <button
+          className="btn btn-secondary btn-sm"
+          onClick={onOpenModels}
+          title="查看 NVIDIA Build 全部可用模型列表"
+        >
+          <Layers size={15} className="text-cyan" />
+          <span>模型列表</span>
+        </button>
         {messageCount > 0 && (
           <span className="msg-counter">
             {messageCount} 条消息

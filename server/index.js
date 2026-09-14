@@ -38,6 +38,57 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// 获取 NVIDIA Build 模型列表
+app.get('/api/models', async (req, res) => {
+  const apiKey = process.env.NVIDIA_API_KEY?.trim();
+  if (!apiKey) {
+    return res.status(401).json({
+      error: {
+        status: 401,
+        message: 'NVIDIA API Key 未在后端 .env 中配置，无法获取模型列表。',
+      },
+    });
+  }
+
+  try {
+    const upstreamRes = await fetch('https://integrate.api.nvidia.com/v1/models', {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        Accept: 'application/json',
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (!upstreamRes.ok) {
+      const errorText = await upstreamRes.text();
+      let errorJson;
+      try {
+        errorJson = JSON.parse(errorText);
+      } catch (e) {
+        errorJson = { message: errorText };
+      }
+      return res.status(upstreamRes.status).json({
+        error: {
+          status: upstreamRes.status,
+          statusText: upstreamRes.statusText,
+          message: errorJson.message || errorJson.detail || errorText || '获取模型列表失败',
+        },
+      });
+    }
+
+    const data = await upstreamRes.json();
+    res.json(data);
+  } catch (err) {
+    console.error('[MODELS ERROR]', err);
+    res.status(500).json({
+      error: {
+        status: 500,
+        message: err.message || '获取模型列表时连接超时或网络异常',
+      },
+    });
+  }
+});
+
 // 2. Kimi K3 专用流式聊天接口
 app.post('/api/chat', async (req, res) => {
   const startTime = Date.now();

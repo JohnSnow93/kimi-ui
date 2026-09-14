@@ -3,6 +3,7 @@ import { Header } from './components/Header';
 import { ChatMessage } from './components/ChatMessage';
 import { ChatInput } from './components/ChatInput';
 import { ErrorBanner } from './components/ErrorBanner';
+import { ModelListModal } from './components/ModelListModal';
 import {
   loadStoredMessages,
   saveStoredMessages,
@@ -22,6 +23,7 @@ export function App() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState(null);
   const [health, setHealth] = useState(null);
+  const [isModelModalOpen, setIsModelModalOpen] = useState(false);
 
   const abortControllerRef = useRef(null);
   const chatBottomRef = useRef(null);
@@ -307,6 +309,7 @@ export function App() {
         onNewChat={handleNewChat}
         onClear={handleClear}
         messageCount={messages.length}
+        onOpenModels={() => setIsModelModalOpen(true)}
       />
 
       {/* 错误提示栏 */}
@@ -380,6 +383,12 @@ export function App() {
           onStop={handleStop}
         />
       </footer>
+
+      {/* NVIDIA Build 模型列表查看弹窗 */}
+      <ModelListModal
+        isOpen={isModelModalOpen}
+        onClose={() => setIsModelModalOpen(false)}
+      />
     </div>
   );
 }
