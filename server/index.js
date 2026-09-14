@@ -152,6 +152,76 @@ app.post('/api/chat', async (req, res) => {
       signal: abortController.signal,
     });
 
+    // 处理 202 异步排队响应 (NVIDIA Cloud Functions 机制)
+    if (upstreamResponse.status === 202) {
+      const requestId = upstreamResponse.headers.get('nvcf-reqid');
+      console.log(`[NVIDIA 202] 请求进入排队队列，requestId: ${requestId}，启动异步轮询...`);
+
+      // 设置 SSE 响应头
+      res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      if (res.flushHeaders) res.flushHeaders();
+
+      res.write(`event: reasoning\ndata: ${JSON.stringify({ delta: '[NVIDIA 正在分配 GPU 算力排队中，请稍候...]\n' })}\n\n`);
+
+      // 轮询 /v1/status/{requestId}
+      let pollSuccess = false;
+      const pollStart = Date.now();
+      const pollMaxTime = DEFAULT_TIMEOUT_MS;
+
+      while (!isClientDisconnected && Date.now() - pollStart < pollMaxTime) {
+        await new Promise((r) => setTimeout(r, 2500));
+        if (isClientDisconnected) break;
+
+        try {
+          const pollRes = await fetch(`https://integrate.api.nvidia.com/v1/status/${requestId}`, {
+            headers: {
+              'Authorization': `Bearer ${apiKey}`,
+              'Accept': 'application/json',
+            },
+            signal: abortController.signal,
+          });
+
+          if (pollRes.status === 200) {
+            const resultJson = await pollRes.json();
+            const choice = resultJson.choices?.[0];
+            const msg = choice?.message || {};
+            const reasoning = msg.reasoning_content;
+            const content = msg.content;
+
+            if (reasoning) {
+              res.write(`event: reasoning\ndata: ${JSON.stringify({ delta: reasoning })}\n\n`);
+            }
+            if (content) {
+              res.write(`event: content\ndata: ${JSON.stringify({ delta: content })}\n\n`);
+            }
+            res.write(`event: done\ndata: {}\n\n`);
+            pollSuccess = true;
+            break;
+          } else if (pollRes.status === 202) {
+            res.write(`: keep-alive\n\n`);
+            continue;
+          } else {
+            const errBody = await pollRes.text();
+            res.write(`event: error\ndata: ${JSON.stringify({
+              status: pollRes.status,
+              message: `轮询推理结果失败: ${errBody}`,
+            })}\n\n`);
+            pollSuccess = true;
+            break;
+          }
+        } catch (pollErr) {
+          if (pollErr.name === 'AbortError') break;
+        }
+      }
+
+      clearTimeout(timeoutId);
+      if (!res.writableEnded) res.end();
+      return;
+    }
+
     // 如果上游返回非 200 响应
     if (!upstreamResponse.ok) {
       clearTimeout(timeoutId);
@@ -173,6 +243,10 @@ app.post('/api/chat', async (req, res) => {
         friendlyTip = `模型 ${MODEL_NAME} 不存在或当前端点不可用。`;
       } else if (upstreamResponse.status === 422) {
         friendlyTip = '请求参数校验失败，请检查 reasoning_effort、max_tokens 等参数范围。';
+      } else if (upstreamResponse.status === 429) {
+        friendlyTip = '触发了 NVIDIA Build API 对 Kimi K3 的频次限制 (Rate Limit) 或并发配额上限。NVIDIA 免费测试服务限制了每分钟调用频率，请等待 1~2 分钟冷却后再试。';
+      } else if (upstreamResponse.status === 503 || upstreamResponse.status === 504) {
+        friendlyTip = 'NVIDIA 端 moonshotai/kimi-k3 推理服务当前算力满载 (ResourceExhausted / Gateway Timeout)。请稍候片刻再试。';
       }
 
       return res.status(upstreamResponse.status).json({
@@ -289,18 +363,47 @@ app.post('/api/chat', async (req, res) => {
       }
     } else {
       console.error(`[STREAM ERROR] 请求发生异常 (${duration}ms):`, error);
+
+      const isSocketClosed =
+        error.cause?.code === 'UND_ERR_SOCKET' ||
+        error.cause?.message?.includes('other side closed') ||
+        error.message?.includes('fetch failed');
+      const isGatewayTimeout = isSocketClosed && duration >= 45000;
+
+      let status = 500;
+      let statusText = 'Internal Server Error';
+      let message = error.message || '后端与 NVIDIA API 通信发生未知错误';
+      let friendlyTip = '';
+
+      if (isGatewayTimeout) {
+        status = 504;
+        statusText = 'Gateway Timeout';
+        message = `NVIDIA API 网关在等待约 ${Math.round(duration / 1000)} 秒后关闭了连接 (Socket closed by upstream gateway: other side closed)`;
+        friendlyTip =
+          'NVIDIA Build 托管的 moonshotai/kimi-k3 为 2.8T MoE 超大模型，当前官方 GPU 集群排队严重或正在冷启动，未能在 60 秒网关超时前产出首个 Token。建议稍等 1~2 分钟重试，或在输入框上方将 Reasoning 深度切换为 Low 以减少推理时间。';
+      } else if (isSocketClosed) {
+        status = 502;
+        statusText = 'Bad Gateway';
+        message = `与 NVIDIA API 的网络通信连接意外中断 (${error.cause?.message || error.message})`;
+        friendlyTip = '请检查本机是否能正常连接 integrate.api.nvidia.com，或网络代理/梯子是否保持连接存活。';
+      }
+
       if (!res.headersSent) {
-        res.status(500).json({
+        res.status(status).json({
           error: {
-            status: 500,
-            type: 'StreamProcessingError',
-            message: error.message || '后端与 NVIDIA API 通信发生未知错误',
+            status,
+            statusText,
+            message,
+            friendlyTip,
+            details: error.cause ? { code: error.cause.code, message: error.cause.message } : undefined,
           },
         });
       } else if (!res.writableEnded) {
         res.write(`event: error\ndata: ${JSON.stringify({
-          status: 500,
-          message: error.message || '网络流式传输发生异常中断',
+          status,
+          statusText,
+          message,
+          friendlyTip,
         })}\n\n`);
         res.end();
       }

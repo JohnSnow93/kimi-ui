@@ -199,8 +199,14 @@ export function App() {
               } else if (currentEvent === 'error') {
                 setError({
                   status: data.status || 500,
+                  statusText: data.statusText || '',
                   message: data.message || '流传输中断',
+                  friendlyTip: data.friendlyTip,
+                  details: data.details,
                 });
+                setMessages((prev) =>
+                  prev.filter((m) => m.id !== assistantMsgId || m.content || m.reasoning_content)
+                );
               } else if (currentEvent === 'abort') {
                 console.log('生成已被客户端终止');
               }
